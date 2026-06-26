@@ -1,0 +1,20 @@
+{
+  "name": "@pipeworx/mcp-stat-ee",
+  "version": "0.1.0",
+  "description": "Statistics Estonia (andmed.stat.ee) PxWeb MCP. Keyless.",
+  "type": "module",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "keywords": ["mcp", "mcp-server", "model-context-protocol", "pipeworx", "stat-ee"],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/pipeworx-io/mcp-stat-ee"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.0"
+  }
+}
