@@ -1,6 +1,6 @@
 {
   "name": "@pipeworx/mcp-stat-ee",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Statistics Estonia (andmed.stat.ee) PxWeb MCP. Keyless.",
   "type": "module",
   "main": "src/index.ts",
@@ -26,7 +26,7 @@
     "@cloudflare/workers-types": "^4.20260405.1"
   },
   "pipeworx": {
-    "sourceHash": "v1-b0e6a7e96a11a51bc0a7f1345e845eb6c41dd7d42562948851920856ed96b839",
-    "sourceCommit": "00c836ddeaecbdd581dcfb0fb1842efea104006e"
+    "sourceHash": "v1-4058bf99bc1eb35b6b3e3ee190ff4de8b0f9efdf99918557ffebd5a5afbbde16",
+    "sourceCommit": "d4a9636716f113458bd312e487c065f76548df8c"
   }
 }
