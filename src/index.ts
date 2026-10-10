@@ -800,8 +800,18 @@ async function callTool(name: string, args: Record<string, unknown>): Promise<un
       const path = (args.path as string | undefined)?.replace(/^\/+|\/+$/g, '') ?? '';
       return statGet(path ? `/${path}` : '');
     }
-    case 'table_meta':
-      return statGet(`/${reqStr(args, 'path', '"rahvastik/rahvastikunaitajad-ja-koosseis/rahvaarv-ja-rahvastiku-koosseis/RV021.PX"').replace(/^\/+|\/+$/g, '')}`);
+    case 'table_meta': {
+      const path = reqStr(args, 'path', '"rahvastik/rahvastikunaitajad-ja-koosseis/rahvaarv-ja-rahvastiku-koosseis/RV021.PX"').replace(/^\/+|\/+$/g, '');
+      try {
+        return await statGet(`/${path}`);
+      } catch (e) {
+        const corrected = await repairPath(path);
+        if (!corrected) throw e;
+        const meta = await statGet(`/${corrected}`);
+        const _path_corrected = { requested: path, used: corrected };
+        return Array.isArray(meta) ? { variables: meta, _path_corrected } : { ...(meta as Record<string, unknown>), _path_corrected };
+      }
+    }
     case 'estonia_average_wage': {
       const quarters = Math.min(40, Math.max(1, Number(args.quarters) || 8));
       const res = await pwFetch(`${BASE}/${WAGE_TABLE}`, {
@@ -865,11 +875,31 @@ async function callTool(name: string, args: Record<string, unknown>): Promise<un
       const path = reqStr(args, 'path', '"rahvastik/rahvastikunaitajad-ja-koosseis/rahvaarv-ja-rahvastiku-koosseis/RV021.PX"').replace(/^\/+|\/+$/g, '');
       const body = args.body;
       if (!body || typeof body !== 'object') throw new Error('body must be a PxWeb query object.');
-      const res = await pwFetch(`${BASE}/${path}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Accept: 'application/json', 'User-Agent': UA },
-        body: JSON.stringify(body),
-      });
+      const runQuery = (p: string) =>
+        pwFetch(`${BASE}/${p}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Accept: 'application/json', 'User-Agent': UA },
+          body: JSON.stringify(body),
+        });
+      let res = await runQuery(path);
+      let usedPath = path;
+      // The dominant 400 here is a caller (almost always an LLM that already
+      // knew the table CODE from the question, e.g. "table RV066") naming a
+      // path that is one folder shallow — stat_ee_find_table can't catch this
+      // itself (its matching only expands a folder whose LABEL hits a query
+      // word, and a bare code never labels an ancestor folder). Try the cheap
+      // one-level repair before surfacing the error; this is what turns a
+      // guaranteed external refill round-trip (another LLM call, ~5-15s) into
+      // ~2s of extra listChildren calls inside THIS tool call — the mechanism
+      // behind fleet #2834's ask_pipeworx request_deadline_exceeded on
+      // multi-filter Statistics Estonia asks.
+      if (!res.ok && res.status === 400) {
+        const corrected = await repairPath(path);
+        if (corrected) {
+          const retry = await runQuery(corrected);
+          if (retry.ok) { res = retry; usedPath = corrected; }
+        }
+      }
       if (!res.ok) {
         const detail = await res.text().then((t) => t.replace(/\s+/g, ' ').trim().slice(0, 200));
         // PxWeb uses a bare 400 for three different caller mistakes here — a
@@ -889,7 +919,8 @@ async function callTool(name: string, args: Record<string, unknown>): Promise<un
         }
         throw new Error(`Statistics Estonia: ${res.status} ${detail}`);
       }
-      return res.json();
+      const data = (await res.json()) as Record<string, unknown>;
+      return usedPath === path ? data : { ...data, _path_corrected: { requested: path, used: usedPath } };
     }
     default:
       throw new Error(`Unknown tool: ${name}`);
@@ -1144,6 +1175,53 @@ async function listChildren(path: string): Promise<TreeItem[]> {
     // One unreachable branch shouldn't sink the whole search.
     return [];
   }
+}
+
+/**
+ * Self-heal for the dominant table_meta/query_table 400: a caller (almost
+ * always an LLM that named a table code it already knows, e.g. "table
+ * RV066") gives a path that is ONE FOLDER SHALLOW — fleet #2834, live:
+ * "rahvastik/rahvastikunaitajad-ja-koosseis/RV066.PX" when the real path is
+ * ".../rahvaarv-ja-rahvastiku-koosseis/RV066.px". stat_ee_find_table can't
+ * catch this because its own matching only expands a folder whose LABEL hits
+ * a query word, and a bare code like "RV066" never appears on an ancestor
+ * folder's label — only on the leaf table itself (verified live: querying
+ * find_table with "RV066" returns zero matches although the table exists).
+ *
+ * This is cheap specifically because it is ONE level, not a tree walk: list
+ * the given parent, and if the wanted id isn't a direct child, list that
+ * parent's own subfolders (one more level) looking for it. Measured live
+ * against the real upstream (fleet #2834): 2 listChildren rounds, ~2.5s
+ * total — far under the ask_pipeworx fan-out budget, and far cheaper than
+ * the external refill round-trip (another LLM call) that a bare 400 forces
+ * today. Returns null (no silent guess) on anything else: not found, or
+ * found under more than one sibling folder.
+ */
+async function findTableNearby(parentPath: string, wantedId: string): Promise<string | null> {
+  const wantedLc = wantedId.toLowerCase();
+  const children = await listChildren(parentPath);
+  const direct = children.find((c) => (c.id ?? '').toLowerCase() === wantedLc);
+  if (direct) return `${parentPath}/${direct.id}`;
+
+  const folders = children.filter((c) => c.type === 'l').slice(0, 20);
+  const nested = await Promise.all(
+    folders.map(async (f) => {
+      const kids = await listChildren(`${parentPath}/${f.id}`);
+      const hit = kids.find((c) => (c.id ?? '').toLowerCase() === wantedLc);
+      return hit ? `${parentPath}/${f.id}/${hit.id}` : null;
+    }),
+  );
+  const found = nested.filter((p): p is string => p !== null);
+  return found.length === 1 ? found[0]! : null;
+}
+
+/** Split a full path into parent + leaf and run findTableNearby on it. */
+async function repairPath(path: string): Promise<string | null> {
+  const segments = path.split('/').filter(Boolean);
+  if (segments.length < 2) return null; // nothing to go "up" from
+  const wantedId = segments[segments.length - 1]!;
+  const parentPath = segments.slice(0, -1).join('/');
+  return findTableNearby(parentPath, wantedId);
 }
 
 /** Lowercase, strip diacritics, and reduce punctuation to spaces. */
