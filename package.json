@@ -1,12 +1,20 @@
 {
   "name": "@pipeworx/mcp-stat-ee",
-  "version": "0.1.3",
+  "version": "0.2.0",
   "description": "Statistics Estonia (andmed.stat.ee) PxWeb MCP. Keyless.",
   "type": "module",
-  "main": "src/index.ts",
-  "types": "src/index.ts",
+  "main": "lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./tools.json": "./tools.json",
+    "./package.json": "./package.json"
+  },
   "bin": {
     "mcp-stat-ee": "bin/cli.js"
+  },
+  "files": ["bin/", "lib/", "tools.json", "server.json"],
+  "engines": {
+    "node": ">=18"
   },
   "keywords": ["mcp", "mcp-server", "model-context-protocol", "pipeworx", "stat-ee"],
   "license": "MIT",
@@ -14,19 +22,12 @@
     "type": "git",
     "url": "git+https://github.com/pipeworx-io/mcp-stat-ee.git"
   },
-  "scripts": {
-    "typecheck": "tsc --noEmit"
-  },
-  "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.30.0",
-    "tsx": "^4.19.0"
-  },
-  "devDependencies": {
-    "typescript": "^5.9.3",
-    "@cloudflare/workers-types": "^4.20260405.1"
-  },
+  "mcpName": "io.github.pipeworx-io/stat-ee",
   "pipeworx": {
-    "sourceHash": "v1-a0d92ddc607d8f15968ff04d9072c1eb1c5f8059418a355d3c23e2afd5e1997b",
-    "sourceCommit": "0ce6905893fe8da0d285be2f05754a4200d67371"
+    "mode": "gateway",
+    "slug": "stat-ee",
+    "gatewaySlug": "stat-ee",
+    "sourceHash": "v1-4ad4347af69933a94a8ce61081528db0a36eb54866881777889b31513b1feda5",
+    "sourceCommit": "f47d581679e1e887373df51ba623f891fbe4c464"
   }
 }
